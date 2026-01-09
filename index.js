@@ -249,7 +249,39 @@ app.get('/api/companies', async (req, res) => {
         res.json(result.rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+// --- NUEVO: IMPORTACIÓN MASIVA DE EMPRESAS ---
+app.post('/api/companies/import', async (req, res) => {
+  const companies = req.body; // Recibimos la lista del Excel
 
+  if (!Array.isArray(companies) || companies.length === 0) {
+    return res.status(400).json({ error: 'No hay datos para importar' });
+  }
+
+  try {
+    // Recorremos la lista y guardamos uno por uno
+    for (const c of companies) {
+      // OJO: Asumimos que son 'Cliente' por defecto si no viene el tipo
+      await pool.query(
+        `INSERT INTO companies (name, rut, giro, industry, city, type, address, status) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          c.name, 
+          c.rut, 
+          c.giro, 
+          c.industry, 
+          c.city, 
+          'Cliente',      // Tipo por defecto
+          'Dirección pendiente', // Dirección por defecto
+          'Activo'        // Estado por defecto
+        ]
+      );
+    }
+    res.json({ message: 'Importación exitosa' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al guardar en la base de datos' });
+  }
+});
 app.post('/api/companies', async (req, res) => {
     const { name, industry, city, status, address, type, rut, giro } = req.body;
     try {
