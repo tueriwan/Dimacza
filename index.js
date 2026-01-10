@@ -484,7 +484,18 @@ app.put('/api/documents/:id/status', async (req, res) => {
         res.json({ message: "Estado actualizado" });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
+// --- ELIMINAR DOCUMENTO (Faltaba esto) ---
+app.delete('/api/documents/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Borramos el documento de la base de datos
+    await pool.query('DELETE FROM documents WHERE id = $1', [id]);
+    res.json({ message: 'Documento eliminado correctamente' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al eliminar documento' });
+  }
+});
 // Placeholder para email si en el futuro lo usas
 app.post('/api/send-email-oc/:id', async (req, res) => {
     res.json({ message: "Usa el cliente nativo del frontend" });
