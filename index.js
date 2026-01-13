@@ -510,7 +510,7 @@ app.post('/api/chat', async (req, res) => {
 
         // --- 🛡️ SEGURIDAD: Filtro de permisos ---
         // Solo dejamos pasar a Admin o Vendedor para ver archivos
-        const esUsuarioAutorizado = (rol === "ADMIN" || rol === "VENDEDOR");
+        const esUsuarioAutorizado = (rol === "admin" || rol === "vendedor");
 
         // --- 🧠 CONFIGURACIÓN DEL MODELO GEMINI ---
         const model = genAI.getGenerativeModel({ 
