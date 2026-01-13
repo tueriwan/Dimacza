@@ -12,8 +12,8 @@ const multer = require('multer'); // Subida de archivos
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 // CONFIGURACIÓN GEMINI
-// IMPORTANTE: Pega tu API KEY (la que empieza con AIza...) dentro de las comillas vacías:
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "AIzaSyCAn3UGPZt7ZSjtudDHFUqnKc_SgKx3xmU");
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const app = express();
 app.use(cors());
