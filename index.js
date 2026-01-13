@@ -516,7 +516,7 @@ app.post('/api/chat', async (req, res) => {
     const { message } = req.body;
     
     // 1. Configuramos el modelo
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-001" });
 
     // 2. Iniciamos el chat con instrucciones
     const chat = model.startChat({
