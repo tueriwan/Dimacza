@@ -9,6 +9,11 @@ const PdfPrinter = require('pdfmake'); // PDF
 const path = require('path');
 const fs = require('fs'); // Sistema de archivos
 const multer = require('multer'); // Subida de archivos
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+
+// CONFIGURACIÓN GEMINI
+// IMPORTANTE: Pega tu API KEY (la que empieza con AIza...) dentro de las comillas vacías:
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "AIzaSyCAn3UGPZt7ZSjtudDHFUqnKc_SgKx3xmU");
 
 const app = express();
 app.use(cors());
@@ -504,6 +509,40 @@ app.post('/api/send-email-oc/:id', async (req, res) => {
 // Usamos /.*/ en lugar de '*' para que funcione en Express 5
 app.get(/.*/, (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+// --- RUTA CHAT INTELIGENTE (GEMINI) ---
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { message } = req.body;
+    
+    // 1. Configuramos el modelo
+    const model = genAI.getGenerativeModel({ model: "gemini-pro"});
+
+    // 2. Iniciamos el chat con instrucciones
+    const chat = model.startChat({
+      history: [
+        {
+          role: "user",
+          parts: [{ text: "Eres el asistente experto del ERP Dimacza. Responde breve y cordial." }],
+        },
+        {
+          role: "model",
+          parts: [{ text: "Entendido. Soy el asistente virtual de Dimacza. ¿En qué puedo ayudarte?" }],
+        },
+      ],
+    });
+
+    // 3. Enviamos el mensaje
+    const result = await chat.sendMessage(message);
+    const response = await result.response;
+    const text = response.text();
+    
+    res.json({ reply: text });
+    
+  } catch (err) {
+    console.error("Error IA:", err);
+    res.status(500).json({ error: "La IA está durmiendo zzz" });
+  }
 });
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
