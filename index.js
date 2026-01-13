@@ -514,7 +514,7 @@ app.post('/api/chat', async (req, res) => {
 
         // --- 🧠 CONFIGURACIÓN DEL MODELO GEMINI ---
         const model = genAI.getGenerativeModel({ 
-            model: "gemini-1.5-flash", // Modelo rápido y eficiente
+            model: "gemini-2.5-flash", // Modelo rápido y eficiente
             tools: herramientasERP     // Le damos la herramienta de búsqueda
         });
 
