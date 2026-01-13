@@ -12,7 +12,6 @@ const multer = require('multer'); // Subida de archivos
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 // CONFIGURACIÓN GEMINI
-
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const app = express();
@@ -254,39 +253,7 @@ app.get('/api/companies', async (req, res) => {
         res.json(result.rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
-// --- NUEVO: IMPORTACIÓN MASIVA DE EMPRESAS ---
-app.post('/api/companies/import', async (req, res) => {
-  const companies = req.body; // Recibimos la lista del Excel
 
-  if (!Array.isArray(companies) || companies.length === 0) {
-    return res.status(400).json({ error: 'No hay datos para importar' });
-  }
-
-  try {
-    // Recorremos la lista y guardamos uno por uno
-    for (const c of companies) {
-      // OJO: Asumimos que son 'Cliente' por defecto si no viene el tipo
-      await pool.query(
-        `INSERT INTO companies (name, rut, giro, industry, city, type, address, status) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-          c.name, 
-          c.rut, 
-          c.giro, 
-          c.industry, 
-          c.city, 
-          'Cliente',      // Tipo por defecto
-          'Dirección pendiente', // Dirección por defecto
-          'Activo'        // Estado por defecto
-        ]
-      );
-    }
-    res.json({ message: 'Importación exitosa' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Error al guardar en la base de datos' });
-  }
-});
 app.post('/api/companies', async (req, res) => {
     const { name, industry, city, status, address, type, rut, giro } = req.body;
     try {
@@ -316,14 +283,17 @@ app.delete('/api/companies/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// --- NUEVO: IMPORTACIÓN MASIVA DE EMPRESAS ---
 app.post('/api/companies/import', async (req, res) => {
     const companies = req.body;
     if (!Array.isArray(companies)) return res.status(400).json({ error: "Formato inválido" });
     try {
         for (const c of companies) {
+            // OJO: Asumimos que son 'Cliente' por defecto si no viene el tipo
             await pool.query(
-                'INSERT INTO companies (name, industry, city, status, address, type) VALUES ($1, $2, $3, $4, $5, $6)',
-                [c['Nombre'] || 'Sin Nombre', c['Rubro'] || '', c['Ciudad'] || '', 'Prospecto', c['Dirección'] || '', 'Cliente']
+                `INSERT INTO companies (name, rut, giro, industry, city, type, address, status) 
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                [c.name, c.rut, c.giro, c.industry, c.city, 'Cliente', 'Dirección pendiente', 'Activo']
             );
         }
         res.json({ message: "Importación exitosa" });
@@ -489,7 +459,8 @@ app.put('/api/documents/:id/status', async (req, res) => {
         res.json({ message: "Estado actualizado" });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
-// --- ELIMINAR DOCUMENTO (Faltaba esto) ---
+
+// --- ELIMINAR DOCUMENTO ---
 app.delete('/api/documents/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -501,49 +472,192 @@ app.delete('/api/documents/:id', async (req, res) => {
     res.status(500).json({ error: 'Error al eliminar documento' });
   }
 });
-// Placeholder para email si en el futuro lo usas
+
+// Placeholder para email
 app.post('/api/send-email-oc/:id', async (req, res) => {
     res.json({ message: "Usa el cliente nativo del frontend" });
 });
-// --- NUEVO: Cualquier ruta que no sea API, manda al index.html (React) ---
+
+// =======================================================
+// 5. CHAT INTELIGENTE CON BÚSQUEDA EN BASE DE DATOS
+// =======================================================
+
+// 🛠️ DEFINIMOS LA HERRAMIENTA DE BÚSQUEDA
+const herramientasERP = [
+  {
+    functionDeclarations: [
+      {
+        name: "buscar_documentos_erp",
+        description: "Busca facturas, cotizaciones, notas de venta o documentos de un cliente en la base de datos. Permite filtrar por tipo de documento.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            nombre_cliente: { type: "STRING", description: "Nombre de la empresa o cliente a buscar (ej: 'Sefutec', 'Juan Perez')" },
+            tipo_doc: { type: "STRING", description: "Tipo de documento opcional (ej: FAC para factura, COT para cotización, NV para nota venta)" }
+          },
+          required: ["nombre_cliente"],
+        },
+      },
+    ],
+  },
+];
+
+app.post('/api/chat', async (req, res) => {
+    try {
+        // Obtenemos los datos del frontend
+        const { message, usuario, rol } = req.body;
+        console.log(`💬 Chat iniciado por: ${usuario} (${rol})`);
+
+        // --- 🛡️ SEGURIDAD: Filtro de permisos ---
+        // Solo dejamos pasar a Admin o Vendedor para ver archivos
+        const esUsuarioAutorizado = (rol === "ADMIN" || rol === "VENDEDOR");
+
+        // --- 🧠 CONFIGURACIÓN DEL MODELO GEMINI ---
+        const model = genAI.getGenerativeModel({ 
+            model: "gemini-1.5-flash", // Modelo rápido y eficiente
+            tools: herramientasERP     // Le damos la herramienta de búsqueda
+        });
+
+        // Iniciamos el chat
+        const chat = model.startChat({
+            history: [
+                {
+                    role: "user",
+                    parts: [{ text: `Eres el asistente experto del ERP Dimacza. 
+                                     Usuario actual: ${usuario}. 
+                                     Rol: ${rol}.
+                                     Responde de forma útil y profesional.` }],
+                },
+                {
+                    role: "model",
+                    parts: [{ text: "Entendido. Estoy listo para ayudar con información del ERP y búsqueda de documentos si tienes los permisos necesarios." }],
+                }
+            ],
+        });
+
+        // 1. Enviamos el mensaje del usuario a la IA
+        const result = await chat.sendMessage(message);
+        const response = result.response;
+        const functionCalls = response.functionCalls();
+
+        // --- 🤖 VERIFICAMOS SI LA IA DECIDIÓ BUSCAR EN LA BASE DE DATOS ---
+        if (functionCalls && functionCalls.length > 0) {
+            const llamada = functionCalls[0];
+            const args = llamada.args;
+            
+            console.log("🔍 IA solicitando búsqueda en DB:", args);
+
+            // A. Verificación de Seguridad
+            if (!esUsuarioAutorizado) {
+                return res.json({ 
+                    reply: `🚫 Lo siento ${usuario}, he detectado que buscas documentos internos, pero tu rol actual (${rol}) no tiene permisos para acceder a la base de datos de archivos.` 
+                });
+            }
+
+            // B. Construcción de la Consulta SQL (JOIN entre documents y companies)
+            // Buscamos documentos donde el nombre de la compañía coincida con lo que pide el usuario
+            let sqlQuery = `
+                SELECT 
+                    d.id, 
+                    d.type, 
+                    d.folio, 
+                    d.date, 
+                    d.total,
+                    d.file_url,
+                    c.name as nombre_empresa
+                FROM documents d
+                JOIN companies c ON d.company_id = c.id
+                WHERE c.name ILIKE $1
+            `;
+            
+            const values = [`%${args.nombre_cliente}%`];
+
+            // Si la IA detectó un tipo de documento específico, lo filtramos
+            if (args.tipo_doc) {
+                let tipoCodigo = args.tipo_doc.toUpperCase();
+                // Normalizamos lo que dice la IA a tus códigos de DB (FAC, COT, NV, etc)
+                if (tipoCodigo.includes("FACTURA")) tipoCodigo = "FAC";
+                if (tipoCodigo.includes("COTIZA")) tipoCodigo = "COT";
+                if (tipoCodigo.includes("VENTA")) tipoCodigo = "NV";
+                if (tipoCodigo.includes("GUIA")) tipoCodigo = "GD";
+                
+                sqlQuery += ` AND d.type ILIKE $2`;
+                values.push(`%${tipoCodigo}%`);
+            }
+
+            // Ordenamos por fecha descendente y limitamos a 5 resultados
+            sqlQuery += ` ORDER BY d.date DESC LIMIT 5`;
+
+            try {
+                // Ejecutamos la consulta en Postgres
+                const dbResult = await pool.query(sqlQuery, values);
+
+                if (dbResult.rows.length > 0) {
+                    // C. Formateamos los resultados para que la IA los entienda
+                    const docsEncontrados = dbResult.rows.map(doc => ({
+                        tipo: doc.type,
+                        folio: doc.folio,
+                        cliente: doc.nombre_empresa,
+                        total: doc.total, // Opcional: mostrar monto
+                        fecha: doc.date.toISOString().split('T')[0], // Solo la fecha YYYY-MM-DD
+                        
+                        // GENERACIÓN DEL LINK:
+                        // Si el documento tiene 'file_url' guardado (subido manualmente), usamos ese.
+                        // Si no, generamos el link al endpoint de PDF del sistema.
+                        link_visualizacion: doc.file_url 
+                            ? `https://dimacza.onrender.com${doc.file_url}` 
+                            : `https://dimacza.onrender.com/api/documents/${doc.id}/pdf` 
+                            // OJO: Si no tienes ruta /api/documents/:id/pdf, usa tu ruta de visualización del frontend
+                    }));
+
+                    // D. Devolvemos los datos a la IA
+                    const functionResponse = [{
+                        functionResponse: {
+                            name: "buscar_documentos_erp",
+                            response: { status: "exito", documentos: docsEncontrados }
+                        }
+                    }];
+                    
+                    // La IA procesa los datos JSON y redacta una respuesta amable para el humano
+                    const finalResult = await chat.sendMessage(functionResponse);
+                    return res.json({ reply: finalResult.response.text() });
+
+                } else {
+                    // E. No se encontraron resultados
+                    const functionError = [{
+                        functionResponse: {
+                            name: "buscar_documentos_erp",
+                            response: { 
+                                status: "sin_resultados", 
+                                mensaje: `No se encontraron documentos en la base de datos para el cliente "${args.nombre_cliente}".` 
+                            }
+                        }
+                    }];
+                    const finalResult = await chat.sendMessage(functionError);
+                    return res.json({ reply: finalResult.response.text() });
+                }
+
+            } catch (sqlError) {
+                console.error("❌ Error SQL en Chat:", sqlError);
+                return res.json({ reply: "Tuve un problema técnico al consultar la base de datos. Por favor intenta más tarde." });
+            }
+        }
+
+        // Si la IA no quiso usar herramientas (charla normal), devolvemos su respuesta de texto
+        res.json({ reply: response.text() });
+
+    } catch (err) {
+        console.error("❌ Error General Chat IA:", err);
+        res.status(500).json({ error: "La IA tuvo un problema interno." });
+    }
+});
+
+// --- RUTA FINAL CATCH-ALL (PARA REACT) ---
 // Usamos /.*/ en lugar de '*' para que funcione en Express 5
 app.get(/.*/, (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
-// --- RUTA CHAT INTELIGENTE (GEMINI) ---
-app.post('/api/chat', async (req, res) => {
-  try {
-    const { message } = req.body;
-    
-    // 1. Configuramos el modelo
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-    // 2. Iniciamos el chat con instrucciones
-    const chat = model.startChat({
-      history: [
-        {
-          role: "user",
-          parts: [{ text: "Eres el asistente experto del ERP Dimacza. Responde breve y cordial." }],
-        },
-        {
-          role: "model",
-          parts: [{ text: "Entendido. Soy el asistente virtual de Dimacza. ¿En qué puedo ayudarte?" }],
-        },
-      ],
-    });
-
-    // 3. Enviamos el mensaje
-    const result = await chat.sendMessage(message);
-    const response = await result.response;
-    const text = response.text();
-    
-    res.json({ reply: text });
-    
-  } catch (err) {
-    console.error("Error IA:", err);
-    res.status(500).json({ error: "La IA está durmiendo zzz" });
-  }
-});
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`✅ Servidor CRM/ERP corriendo en http://localhost:${PORT}`);
