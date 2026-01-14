@@ -618,7 +618,7 @@ app.post('/api/chat', async (req, res) => {
 
         // --- 🧠 CONFIGURACIÓN DEL MODELO GEMINI 1.5 FLASH (CUPOS ALTOS) ---
         const model = genAI.getGenerativeModel({ 
-            model: "gemini-1.5-flash", // Usamos el 1.5 para evitar Error 429
+            model: "gemini-2.5-flash", // Usamos el 1.5 para evitar Error 429
             tools: herramientasERP,
             // 👇 DESACTIVAMOS FILTROS PARA EVITAR ERROR 500
             safetySettings: [
