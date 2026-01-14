@@ -478,16 +478,17 @@ app.post('/api/send-email-oc/:id', async (req, res) => {
     res.json({ message: "Usa el cliente nativo del frontend" });
 });
 
+
 // =======================================================
-// 🆕 RUTA PARA VISUALIZAR DOCUMENTOS (HTML)
+// 🇨🇱 RUTA VISUALIZACIÓN FORMATO SII (CHILE)
 // =======================================================
 app.get('/api/documents/:id/ver', async (req, res) => {
     try {
         const { id } = req.params;
         
-        // 1. Buscamos el documento y la empresa
+        // 1. Buscamos datos (Igual que antes)
         const docRes = await pool.query(`
-            SELECT d.*, c.name as company_name, c.rut as company_rut, c.address as company_address, c.city as company_city 
+            SELECT d.*, c.name as company_name, c.rut as company_rut, c.giro as company_giro, c.address as company_address, c.city as company_city 
             FROM documents d 
             JOIN companies c ON d.company_id = c.id 
             WHERE d.id = $1
@@ -496,58 +497,107 @@ app.get('/api/documents/:id/ver', async (req, res) => {
         if (docRes.rows.length === 0) return res.status(404).send('Documento no encontrado');
         const doc = docRes.rows[0];
 
-        // 2. Buscamos los items (productos)
         const itemsRes = await pool.query('SELECT * FROM document_items WHERE document_id = $1', [id]);
         const items = itemsRes.rows;
 
-        // 3. Generamos un HTML simple y bonito
+        // 2. Formateadores de moneda (Pesos Chilenos)
+        const clp = new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' });
+
+        // 3. HTML CON DISEÑO SII (Cuadro Rojo)
         const html = `
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Documento #${doc.folio}</title>
+            <title>DTE ${doc.folio}</title>
             <style>
-                body { font-family: 'Helvetica', sans-serif; padding: 40px; color: #333; max-width: 800px; margin: 0 auto; border: 1px solid #eee; box-shadow: 0 0 10px rgba(0,0,0,0.05); }
-                .header { display: flex; justify-content: space-between; margin-bottom: 40px; border-bottom: 2px solid #333; padding-bottom: 20px; }
-                .company-info h1 { margin: 0; font-size: 24px; color: #e74c3c; }
-                .doc-info { text-align: right; }
-                .client-box { background: #f9f9f9; padding: 20px; border-radius: 8px; margin-bottom: 30px; }
-                table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-                th { background: #333; color: white; padding: 10px; text-align: left; }
-                td { padding: 10px; border-bottom: 1px solid #ddd; }
-                .totals { text-align: right; font-size: 18px; }
-                .total-final { font-size: 24px; font-weight: bold; color: #e74c3c; }
-                .btn-print { background: #333; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 5px; text-decoration: none; display: inline-block; margin-top: 20px; }
-                @media print { .btn-print { display: none; } body { border: none; box-shadow: none; } }
+                body { font-family: Arial, sans-serif; padding: 40px; color: #000; max-width: 850px; margin: 0 auto; font-size: 14px; }
+                
+                /* CABECERA SII */
+                .header-sii { display: flex; justify-content: space-between; margin-bottom: 30px; }
+                .company-data { width: 60%; }
+                .company-data h1 { margin: 0; font-size: 28px; color: #000; text-transform: uppercase; }
+                .company-data p { margin: 2px 0; font-weight: bold; color: #444; }
+                
+                /* EL FAMOSO CUADRO ROJO */
+                .rut-box {
+                    width: 280px;
+                    border: 4px solid #FF0000;
+                    text-align: center;
+                    color: #FF0000;
+                    padding: 15px 5px;
+                    font-weight: bold;
+                }
+                .rut-box .rut { font-size: 22px; margin-bottom: 5px; display: block; }
+                .rut-box .tipo-doc { font-size: 18px; display: block; margin: 10px 0; color: #FF0000; }
+                .rut-box .folio { font-size: 22px; display: block; }
+
+                /* DATOS CLIENTE */
+                .client-box { border: 1px solid #000; padding: 10px; margin-bottom: 20px; display: flex; flex-wrap: wrap; }
+                .client-row { width: 100%; display: flex; margin-bottom: 5px; }
+                .label { width: 100px; font-weight: bold; }
+                .value { flex: 1; }
+
+                /* TABLA ITEMS */
+                table { width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #000; }
+                th { border: 1px solid #000; padding: 8px; text-align: center; font-size: 12px; background: #eee; }
+                td { border: 1px solid #000; padding: 8px; font-size: 12px; }
+                
+                /* TOTALES */
+                .footer-section { display: flex; justify-content: space-between; align-items: flex-start; }
+                .timbre-electronico { width: 300px; height: 120px; border: 1px solid #ccc; display: flex; align-items: center; justify-content: center; color: #ccc; font-size: 10px; text-align: center; }
+                
+                .totals-box { width: 250px; border: 1px solid #000; }
+                .total-row { display: flex; justify-content: space-between; padding: 5px 10px; }
+                .total-row.final { background: #ddd; font-weight: bold; }
+
+                .btn-print { position: fixed; bottom: 20px; right: 20px; background: #333; color: white; border: none; padding: 15px 30px; cursor: pointer; border-radius: 50px; font-size: 16px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+                @media print { .btn-print { display: none; } }
             </style>
         </head>
         <body>
-            <div class="header">
-                <div class="company-info">
+            <div class="header-sii">
+                <div class="company-data">
                     <h1>DIMACZA ERP</h1>
-                    <p>RUT: 76.123.456-7</p>
-                    <p>Santiago, Chile</p>
+                    <p>GIRO: VENTA DE ARTICULOS DE COMPUTACIÓN</p>
+                    <p>DIRECCIÓN: AV. SIEMPRE VIVA 742</p>
+                    <p>CIUDAD: SANTIAGO</p>
+                    <br>
+                    <p>Fecha Emisión: ${new Date(doc.date).toLocaleDateString('es-CL')}</p>
                 </div>
-                <div class="doc-info">
-                    <h2>${doc.type === 'FAC' ? 'FACTURA ELECTRÓNICA' : doc.type}</h2>
-                    <h3>Folio Nº ${doc.folio}</h3>
-                    <p>Fecha: ${new Date(doc.date).toLocaleDateString()}</p>
+                
+                <div class="rut-box">
+                    <span class="rut">R.U.T.: 76.123.456-7</span>
+                    <span class="tipo-doc">FACTURA ELECTRÓNICA</span>
+                    <span class="folio">Nº ${doc.folio}</span>
                 </div>
             </div>
 
             <div class="client-box">
-                <strong>Señor(es):</strong> ${doc.company_name}<br>
-                <strong>RUT:</strong> ${doc.company_rut || 'S/I'}<br>
-                <strong>Dirección:</strong> ${doc.company_address || ''}, ${doc.company_city || ''}
+                <div class="client-row">
+                    <div class="label">Señor(es):</div>
+                    <div class="value">${doc.company_name}</div>
+                </div>
+                <div class="client-row">
+                    <div class="label">R.U.T.:</div>
+                    <div class="value">${doc.company_rut || 'Sin RUT'}</div>
+                </div>
+                <div class="client-row">
+                    <div class="label">Giro:</div>
+                    <div class="value">${doc.company_giro || 'Comercial'}</div>
+                </div>
+                <div class="client-row">
+                    <div class="label">Dirección:</div>
+                    <div class="value">${doc.company_address || 'Sin dirección'}, ${doc.company_city || ''}</div>
+                </div>
             </div>
 
             <table>
                 <thead>
                     <tr>
                         <th>Descripción</th>
-                        <th style="text-align: center">Cant.</th>
-                        <th style="text-align: right">Precio</th>
-                        <th style="text-align: right">Total</th>
+                        <th width="50">Cant.</th>
+                        <th width="100">Precio Unit.</th>
+                        <th width="100">Total</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -555,20 +605,38 @@ app.get('/api/documents/:id/ver', async (req, res) => {
                     <tr>
                         <td>${item.name}</td>
                         <td style="text-align: center">${item.quantity}</td>
-                        <td style="text-align: right">$${Number(item.price).toLocaleString()}</td>
-                        <td style="text-align: right">$${Number(item.quantity * item.price).toLocaleString()}</td>
+                        <td style="text-align: right">${clp.format(item.price)}</td>
+                        <td style="text-align: right">${clp.format(item.quantity * item.price)}</td>
                     </tr>
                     `).join('')}
                 </tbody>
             </table>
 
-            <div class="totals">
-                <p>Neto: $${Number(doc.neto).toLocaleString()}</p>
-                <p>IVA (19%): $${Number(doc.tax).toLocaleString()}</p>
-                <p class="total-final">TOTAL: $${Number(doc.total).toLocaleString()}</p>
+            <div class="footer-section">
+                <div class="timbre-area">
+                   <div class="timbre-electronico">
+                        Timbre Electrónico SII<br>
+                        Res. 99 de 2014 Verifique documento: www.sii.cl
+                   </div>
+                </div>
+
+                <div class="totals-box">
+                    <div class="total-row">
+                        <span>Monto Neto:</span>
+                        <span>${clp.format(doc.neto)}</span>
+                    </div>
+                    <div class="total-row">
+                        <span>I.V.A. (19%):</span>
+                        <span>${clp.format(doc.tax)}</span>
+                    </div>
+                    <div class="total-row final">
+                        <span>TOTAL:</span>
+                        <span>${clp.format(doc.total)}</span>
+                    </div>
+                </div>
             </div>
 
-            <button onclick="window.print()" class="btn-print">🖨️ Imprimir / Guardar PDF</button>
+            <button onclick="window.print()" class="btn-print">🖨️ IMPRIMIR</button>
         </body>
         </html>
         `;
@@ -577,7 +645,7 @@ app.get('/api/documents/:id/ver', async (req, res) => {
 
     } catch (err) {
         console.error(err);
-        res.status(500).send("Error generando documento");
+        res.status(500).send("Error generando documento SII");
     }
 });
 
