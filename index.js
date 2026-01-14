@@ -479,6 +479,109 @@ app.post('/api/send-email-oc/:id', async (req, res) => {
 });
 
 // =======================================================
+// 🆕 RUTA PARA VISUALIZAR DOCUMENTOS (HTML)
+// =======================================================
+app.get('/api/documents/:id/ver', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // 1. Buscamos el documento y la empresa
+        const docRes = await pool.query(`
+            SELECT d.*, c.name as company_name, c.rut as company_rut, c.address as company_address, c.city as company_city 
+            FROM documents d 
+            JOIN companies c ON d.company_id = c.id 
+            WHERE d.id = $1
+        `, [id]);
+        
+        if (docRes.rows.length === 0) return res.status(404).send('Documento no encontrado');
+        const doc = docRes.rows[0];
+
+        // 2. Buscamos los items (productos)
+        const itemsRes = await pool.query('SELECT * FROM document_items WHERE document_id = $1', [id]);
+        const items = itemsRes.rows;
+
+        // 3. Generamos un HTML simple y bonito
+        const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Documento #${doc.folio}</title>
+            <style>
+                body { font-family: 'Helvetica', sans-serif; padding: 40px; color: #333; max-width: 800px; margin: 0 auto; border: 1px solid #eee; box-shadow: 0 0 10px rgba(0,0,0,0.05); }
+                .header { display: flex; justify-content: space-between; margin-bottom: 40px; border-bottom: 2px solid #333; padding-bottom: 20px; }
+                .company-info h1 { margin: 0; font-size: 24px; color: #e74c3c; }
+                .doc-info { text-align: right; }
+                .client-box { background: #f9f9f9; padding: 20px; border-radius: 8px; margin-bottom: 30px; }
+                table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+                th { background: #333; color: white; padding: 10px; text-align: left; }
+                td { padding: 10px; border-bottom: 1px solid #ddd; }
+                .totals { text-align: right; font-size: 18px; }
+                .total-final { font-size: 24px; font-weight: bold; color: #e74c3c; }
+                .btn-print { background: #333; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 5px; text-decoration: none; display: inline-block; margin-top: 20px; }
+                @media print { .btn-print { display: none; } body { border: none; box-shadow: none; } }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <div class="company-info">
+                    <h1>DIMACZA ERP</h1>
+                    <p>RUT: 76.123.456-7</p>
+                    <p>Santiago, Chile</p>
+                </div>
+                <div class="doc-info">
+                    <h2>${doc.type === 'FAC' ? 'FACTURA ELECTRÓNICA' : doc.type}</h2>
+                    <h3>Folio Nº ${doc.folio}</h3>
+                    <p>Fecha: ${new Date(doc.date).toLocaleDateString()}</p>
+                </div>
+            </div>
+
+            <div class="client-box">
+                <strong>Señor(es):</strong> ${doc.company_name}<br>
+                <strong>RUT:</strong> ${doc.company_rut || 'S/I'}<br>
+                <strong>Dirección:</strong> ${doc.company_address || ''}, ${doc.company_city || ''}
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Descripción</th>
+                        <th style="text-align: center">Cant.</th>
+                        <th style="text-align: right">Precio</th>
+                        <th style="text-align: right">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${items.map(item => `
+                    <tr>
+                        <td>${item.name}</td>
+                        <td style="text-align: center">${item.quantity}</td>
+                        <td style="text-align: right">$${Number(item.price).toLocaleString()}</td>
+                        <td style="text-align: right">$${Number(item.quantity * item.price).toLocaleString()}</td>
+                    </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+
+            <div class="totals">
+                <p>Neto: $${Number(doc.neto).toLocaleString()}</p>
+                <p>IVA (19%): $${Number(doc.tax).toLocaleString()}</p>
+                <p class="total-final">TOTAL: $${Number(doc.total).toLocaleString()}</p>
+            </div>
+
+            <button onclick="window.print()" class="btn-print">🖨️ Imprimir / Guardar PDF</button>
+        </body>
+        </html>
+        `;
+
+        res.send(html);
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Error generando documento");
+    }
+});
+
+// =======================================================
 // 5. CHAT INTELIGENTE CON BÚSQUEDA EN BASE DE DATOS
 // =======================================================
 
@@ -508,14 +611,22 @@ app.post('/api/chat', async (req, res) => {
         const { message, usuario, rol } = req.body;
         console.log(`💬 Chat iniciado por: ${usuario} (${rol})`);
 
-        // --- 🛡️ SEGURIDAD: Filtro de permisos ---
-        // Solo dejamos pasar a Admin o Vendedor para ver archivos
-        const esUsuarioAutorizado = (rol === "admin" || rol === "vendedor");
+        // --- 🛡️ SEGURIDAD MEJORADA: Filtro de permisos ---
+        // Convertimos el rol a mayúsculas para evitar errores (admin vs ADMIN)
+        const rolNormalizado = rol ? rol.toUpperCase() : "";
+        const esUsuarioAutorizado = (rolNormalizado === "ADMIN" || rolNormalizado === "VENDEDOR");
 
-        // --- 🧠 CONFIGURACIÓN DEL MODELO GEMINI ---
+        // --- 🧠 CONFIGURACIÓN DEL MODELO GEMINI 1.5 FLASH (CUPOS ALTOS) ---
         const model = genAI.getGenerativeModel({ 
-            model: "gemini-2.5-flash", // Modelo rápido y eficiente
-            tools: herramientasERP     // Le damos la herramienta de búsqueda
+            model: "gemini-1.5-flash", // Usamos el 1.5 para evitar Error 429
+            tools: herramientasERP,
+            // 👇 DESACTIVAMOS FILTROS PARA EVITAR ERROR 500
+            safetySettings: [
+                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+            ]
         });
 
         // Iniciamos el chat
@@ -601,13 +712,10 @@ app.post('/api/chat', async (req, res) => {
                         total: doc.total, // Opcional: mostrar monto
                         fecha: doc.date.toISOString().split('T')[0], // Solo la fecha YYYY-MM-DD
                         
-                        // GENERACIÓN DEL LINK:
-                        // Si el documento tiene 'file_url' guardado (subido manualmente), usamos ese.
-                        // Si no, generamos el link al endpoint de PDF del sistema.
+                        // ✅ GENERACIÓN DEL LINK NUEVO (Apunta a /ver)
                         link_visualizacion: doc.file_url 
                             ? `https://dimacza.onrender.com${doc.file_url}` 
-                            : `https://dimacza.onrender.com/api/documents/${doc.id}/pdf` 
-                            // OJO: Si no tienes ruta /api/documents/:id/pdf, usa tu ruta de visualización del frontend
+                            : `https://dimacza.onrender.com/api/documents/${doc.id}/ver` 
                     }));
 
                     // D. Devolvemos los datos a la IA
