@@ -376,7 +376,7 @@ app.delete('/api/products/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- DOCUMENTOS (MODIFICADO: JOIN PARA TRAER RUT Y GIRO) ---
+// --- DOCUMENTOS (MODIFICADO: JOIN PARA TRAER RUT Y GIRO Y FOLIO DESDE 6060) ---
 app.post('/api/documents', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -387,7 +387,8 @@ app.post('/api/documents', async (req, res) => {
         let nextFolio = req.body.folio; // Si viene manual (para archivos subidos)
         if (!nextFolio) {
             // Si es automático (para ventas del sistema)
-            const folioRes = await client.query('SELECT COALESCE(MAX(folio), 0) + 1 as next_folio FROM documents WHERE type = $1', [type]);
+            // MODIFICACIÓN AQUI: Usamos GREATEST para asegurar que comience en 6060 si es menor
+            const folioRes = await client.query('SELECT GREATEST(COALESCE(MAX(folio), 0) + 1, 6060) as next_folio FROM documents WHERE type = $1', [type]);
             nextFolio = folioRes.rows[0].next_folio;
         }
 
@@ -480,7 +481,7 @@ app.post('/api/send-email-oc/:id', async (req, res) => {
 
 
 // =======================================================
-// 🇨🇱 RUTA VISUALIZACIÓN FORMATO SII (CHILE)
+// RUTA VISUALIZACIÓN FORMATO SII 
 // =======================================================
 app.get('/api/documents/:id/ver', async (req, res) => {
     try {
@@ -559,6 +560,7 @@ app.get('/api/documents/:id/ver', async (req, res) => {
                 <div class="company-data">
                     <h1>DIMACZA ERP</h1>
                     <p>GIRO: VENTA DE ARTICULOS DE COMPUTACIÓN</p>
+                    <p>DIRECCIÓN: AV. SIEMPRE VIVA 742</p>
                     <p>DIRECCIÓN: AV. SIEMPRE VIVA 742</p>
                     <p>CIUDAD: SANTIAGO</p>
                     <br>
@@ -684,7 +686,7 @@ app.post('/api/chat', async (req, res) => {
         const rolNormalizado = rol ? rol.toUpperCase() : "";
         const esUsuarioAutorizado = (rolNormalizado === "ADMIN" || rolNormalizado === "VENDEDOR");
 
-        // --- 🧠 CONFIGURACIÓN DEL MODELO GEMINI 1.5 FLASH (CUPOS ALTOS) ---
+        // --- 🧠 CONFIGURACIÓN DEL MODELO GEMINI 2.5 FLASH (CUPOS ALTOS) ---
         const model = genAI.getGenerativeModel({ 
             model: "gemini-2.5-flash", // Usamos el 1.5 para evitar Error 429
             tools: herramientasERP,
